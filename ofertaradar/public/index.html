@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="OfertaRadar: encontre ofertas, produtos em alta e preços do Mercado Livre em um só lugar.">
+<meta name="theme-color" content="#070b14">
+<title>OfertaRadar — Ofertas e preços em alta</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap nav">
+    <a class="brand" href="/">Oferta<span>Radar</span></a>
+    <nav>
+      <a href="#radar">Radar</a>
+      <a href="#categorias">Categorias</a>
+      <a href="#sobre">Como funciona</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">⚡ RADAR DE OFERTAS</div>
+    <h1>Descubra o que está <span>valendo a pena</span> comprar.</h1>
+    <p>Pesquise produtos, compare preços e encontre oportunidades em poucos segundos.</p>
+    <form id="searchForm" class="search">
+      <input id="query" autocomplete="off" placeholder="Ex.: celular, SSD 1TB, TV 50..." aria-label="Pesquisar produto">
+      <button>Pesquisar</button>
+    </form>
+    <div class="quick">
+      <button data-q="celular">📱 Celulares</button>
+      <button data-q="ssd 1tb">💾 SSD 1TB</button>
+      <button data-q="notebook">💻 Notebooks</button>
+      <button data-q="smart tv">📺 Smart TVs</button>
+      <button data-q="air fryer">🍳 Air Fryer</button>
+    </div>
+  </div>
+</section>
+
+<section class="wrap section" id="resultados">
+  <div class="sectionHead">
+    <div><span class="eyebrow">RESULTADOS</span><h2 id="resultsTitle">Ofertas encontradas</h2></div>
+    <span id="status" class="status"></span>
+  </div>
+  <div id="products" class="grid empty"><div class="emptyBox">Pesquise um produto para começar.</div></div>
+</section>
+
+<section class="wrap section" id="radar">
+  <div class="sectionHead"><div><span class="eyebrow">RADAR</span><h2>Produtos para ficar de olho</h2></div></div>
+  <div id="radarGrid" class="radarGrid"><div class="loading">Analisando produtos...</div></div>
+</section>
+
+<section class="wrap section" id="categorias">
+  <div class="sectionHead"><div><span class="eyebrow">EXPLORE</span><h2>Categorias</h2></div></div>
+  <div class="categories">
+    <button data-q="celular"><b>📱</b>Celulares</button>
+    <button data-q="notebook"><b>💻</b>Informática</button>
+    <button data-q="video game"><b>🎮</b>Games</button>
+    <button data-q="smart tv"><b>📺</b>TVs</button>
+    <button data-q="air fryer"><b>🏠</b>Casa</button>
+    <button data-q="ferramentas"><b>🔧</b>Ferramentas</button>
+    <button data-q="fone bluetooth"><b>🎧</b>Áudio</button>
+    <button data-q="smartwatch"><b>⌚</b>Wearables</button>
+  </div>
+</section>
+
+<section class="wrap section about" id="sobre">
+  <span class="eyebrow">TRANSPARÊNCIA</span>
+  <h2>Como o OfertaRadar funciona</h2>
+  <p>O site consulta dados públicos de marketplaces para ajudar você a encontrar produtos e preços. Alguns links poderão ser de afiliado; quando isso acontecer, o OfertaRadar poderá receber uma comissão sem custo adicional para você.</p>
+  <p class="muted">Os preços e a disponibilidade podem mudar no marketplace. Sempre confira as condições finais antes de comprar.</p>
+</section>
+</main>
+
+<footer><div class="wrap">© 2026 OfertaRadar · Radar de ofertas e preços</div></footer>
+<script src="/app.js"></script>
+</body>
+</html>
