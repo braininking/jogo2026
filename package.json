@@ -1,0 +1,9 @@
+{
+  "name":"ofertaradar",
+  "version":"1.0.0",
+  "private":true,
+  "description":"OfertaRadar - radar de ofertas e produtos em alta",
+  "scripts":{"start":"node server.js"},
+  "engines":{"node":">=20"},
+  "dependencies":{"express":"^5.1.0"}
+}
