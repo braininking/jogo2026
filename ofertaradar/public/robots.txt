@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://ofertaradar.onrender.com/sitemap.xml
