@@ -46,7 +46,7 @@ async function saveHistory(products){
 async function getHistory(id,limit=30){
   if(db){
     const r=await db.query(
-      "SELECT id,title,price,old_price AS \"oldPrice\",source,permalink,captured_at AS \"capturedAt\" FROM price_history WHERE id=$1 ORDER BY captured_at DESC LIMIT $2",
+      "SELECT id,title,price,old_price AS affiliateUrl:item.url"oldPriceaffiliateUrl:item.url",source,permalink,captured_at AS affiliateUrl:item.url"capturedAtaffiliateUrl:item.url" FROM price_history WHERE id=$1 ORDER BY captured_at DESC LIMIT $2",
       [id,Math.min(Number(limit)||30,100)]
     );
     return r.rows;
@@ -128,7 +128,7 @@ function stripHtml(value){
     .replace(/&amp;/g,"&")
     .replace(/&quot;/g,'"')
     .replace(/&#39;/g,"'")
-    .replace(/\\s+/g," ")
+    .replace(/affiliateUrl:item.urlaffiliateUrl:item.urls+/g," ")
     .trim();
 }
 
@@ -154,8 +154,8 @@ async function webSearchFallback(query,limit=12){
     pos=close+4;
     if(!/mercadolivre/i.test(link)||seen.has(link)||title.length<8)continue;
     const area=html.slice(anchor,Math.min(html.length,close+2200));
-    const priceMatch=area.match(/R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2})/);
-    const price=priceMatch?Number(priceMatch[1].replace(/\\./g,"").replace(",",".")):null;
+    const priceMatch=area.match(/RaffiliateUrl:item.urlaffiliateUrl:item.url$affiliateUrl:item.urlaffiliateUrl:item.urls*([0-9]{1,3}(?:affiliateUrl:item.urlaffiliateUrl:item.url.[0-9]{3})*,[0-9]{2})/);
+    const price=priceMatch?Number(priceMatch[1].replace(/affiliateUrl:item.urlaffiliateUrl:item.url./g,"").replace(",",".")):null;
     seen.add(link);
     if(price&&price>0){
       const p={id:"web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,24),title,price,oldPrice:null,thumbnail:null,permalink:link,condition:"new",shipping:false,seller:"",source:"Web",};
