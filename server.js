@@ -166,49 +166,48 @@ async function webSearchFallback(query,limit=12){
 }
 
 async function mlSearch(query,limit=12){
-  const key=query.toLowerCase().trim();
+  const key=String(query||"").toLowerCase().trim();
   const cached=CACHE.get(key);
   if(cached&&Date.now()-cached.time<CACHE_MS)return cached.data;
 
   const safeLimit=Math.min(Number(limit)||12,20);
-  const direct="https://api.mercadolibre.com/sites/MLB/search?q="+encodeURIComponent(key)+"&limit="+safeLimit;
-  let data=null;
-  let provider="Mercado Livre";
-
+  const apiUrl="https://brmarket.thomenz.me/v1/search?q="+encodeURIComponent(key)+"&limit="+safeLimit;
+  let data;
   try{
-    data=await fetchJson(direct);
+    data=await fetchJson(apiUrl);
   }catch(error){
-    console.warn("Mercado Livre direto indisponível:",error.message);
-    try{
-      const webProducts=await webSearchFallback(key,safeLimit);
-      if(webProducts.length){
-        console.log("Busca web de contingência ativa:",webProducts.length,"resultados");
-        CACHE.set(key,{time:Date.now(),data:webProducts});
-        return webProducts;
-      }
-    }catch(webError){
-      console.error("Busca web de contingência falhou:",webError.message);
-    }
+    console.error("BR Market indisponível:",error.message);
     throw new Error("Fonte de ofertas indisponível no momento");
   }
 
+  const marketplaceNames={mercadolivre:"Mercado Livre",shopee:"Shopee",aliexpress:"AliExpress"};
   const products=(data.results||[]).map(item=>{
+    const price=Number(item.priceCents)/100;
+    const oldPrice=item.originalPriceCents?Number(item.originalPriceCents)/100:null;
     const p={
-      id:item.id,title:item.title,price:Number(item.price),oldPrice:item.original_price?Number(item.original_price):null,
-      thumbnail:item.thumbnail,permalink:item.permalink,condition:item.condition,
-      shipping:item.shipping?.free_shipping===true,seller:item.seller?.nickname||"",source:provider
+      id:String(item.marketplace||"market")+"-"+String(item.productId||""),
+      title:item.title,
+      price,
+      oldPrice,
+      thumbnail:item.imageUrl||"",
+      permalink:item.url,
+      condition:"new",
+      shipping:Number(item.shippingCents)===0&&item.shippingCents!==undefined,
+      seller:item.seller?.name||"",
+      source:marketplaceNames[item.marketplace]||String(item.marketplace||"Marketplace"),
+      soldCount:Number(item.soldCount)||0,
+      rating:Number(item.rating)||0,
+      dataAsOf:item.dataAsOf||data.data_as_of||null,
+      affiliateUrl:item.affiliateUrl||item.url
     };
-    return{...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)};
-  }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.permalink);
+    return{...p,analysis:scoreProduct(p),outboundUrl:p.affiliateUrl};
+  }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink);
 
+  if(!products.length)throw new Error("Nenhuma oferta encontrada para esta busca");
   CACHE.set(key,{time:Date.now(),data:products});
+  console.log("Busca agregada:",key,"-",products.length,"ofertas");
   return products;
 }
-
-app.get("/api/history/:id",async(req,res)=>{
-  try{res.json({id:req.params.id,history:await getHistory(req.params.id)});}
-  catch{res.status(500).json({error:"Histórico indisponível."});}
-});
 
 app.get("/api/search",async(req,res)=>{
   const q=String(req.query.q||"").trim();
