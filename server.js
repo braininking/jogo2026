@@ -46,7 +46,7 @@ async function saveHistory(products){
 async function getHistory(id,limit=30){
   if(db){
     const r=await db.query(
-      "SELECT id,title,price,old_price AS affiliateUrl:item.url"oldPriceaffiliateUrl:item.url",source,permalink,captured_at AS affiliateUrl:item.url"capturedAtaffiliateUrl:item.url" FROM price_history WHERE id=$1 ORDER BY captured_at DESC LIMIT $2",
+      "SELECT id,title,price,old_price AS \"oldPrice\",source,permalink,captured_at AS \"capturedAt\" FROM price_history WHERE id=$1 ORDER BY captured_at DESC LIMIT $2",
       [id,Math.min(Number(limit)||30,100)]
     );
     return r.rows;
@@ -64,7 +64,14 @@ const CATEGORIES={
 };
 
 function affiliateUrl(p){
-  const tpl=process.env.AFFILIATE_REDIRECT_TEMPLATE;
+  const source=String(p.source||"").toLowerCase();
+  const templates={
+    "shopee":process.env.AFFILIATE_SHOPEE_TEMPLATE,
+    "mercado livre":process.env.AFFILIATE_ML_TEMPLATE,
+    "magazine luiza":process.env.AFFILIATE_MAGALU_TEMPLATE,
+    "amazon":process.env.AFFILIATE_AMAZON_TEMPLATE
+  };
+  const tpl=templates[source];
   if(!tpl)return p.permalink;
   return tpl.replaceAll("{url}",encodeURIComponent(p.permalink)).replaceAll("{id}",encodeURIComponent(p.id));
 }
@@ -128,7 +135,7 @@ function stripHtml(value){
     .replace(/&amp;/g,"&")
     .replace(/&quot;/g,'"')
     .replace(/&#39;/g,"'")
-    .replace(/affiliateUrl:item.urlaffiliateUrl:item.urls+/g," ")
+    .replace(/\\s+/g," ")
     .trim();
 }
 
@@ -154,8 +161,8 @@ async function webSearchFallback(query,limit=12){
     pos=close+4;
     if(!/mercadolivre/i.test(link)||seen.has(link)||title.length<8)continue;
     const area=html.slice(anchor,Math.min(html.length,close+2200));
-    const priceMatch=area.match(/RaffiliateUrl:item.urlaffiliateUrl:item.url$affiliateUrl:item.urlaffiliateUrl:item.urls*([0-9]{1,3}(?:affiliateUrl:item.urlaffiliateUrl:item.url.[0-9]{3})*,[0-9]{2})/);
-    const price=priceMatch?Number(priceMatch[1].replace(/affiliateUrl:item.urlaffiliateUrl:item.url./g,"").replace(",",".")):null;
+    const priceMatch=area.match(/R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2})/);
+    const price=priceMatch?Number(priceMatch[1].replace(/\\./g,"").replace(",",".")):null;
     seen.add(link);
     if(price&&price>0){
       const p={id:"web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,24),title,price,oldPrice:null,thumbnail:null,permalink:link,condition:"new",shipping:false,seller:"",source:"Web",};
@@ -198,9 +205,9 @@ async function mlSearch(query,limit=12){
       soldCount:Number(item.soldCount)||0,
       rating:Number(item.rating)||0,
       dataAsOf:item.dataAsOf||data.data_as_of||null,
-      affiliateUrl:item.affiliateUrl||item.url
+      affiliateUrl:item.url
     };
-    return{...p,analysis:scoreProduct(p),outboundUrl:p.affiliateUrl};
+    return{...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)};
   }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink);
 
   if(!products.length)throw new Error("Nenhuma oferta encontrada para esta busca");
@@ -316,7 +323,12 @@ app.get("/api/test",(_req,res)=>res.json({ok:true,service:"ofertaradar",time:new
 
 app.get("/health",(_req,res)=>res.json({
   ok:true,service:"ofertaradar",version:"1.7",
-  affiliateReady:Boolean(process.env.AFFILIATE_REDIRECT_TEMPLATE),
+  affiliateReady:{
+    shopee:Boolean(process.env.AFFILIATE_SHOPEE_TEMPLATE),
+    mercadoLivre:Boolean(process.env.AFFILIATE_ML_TEMPLATE),
+    magazineLuiza:Boolean(process.env.AFFILIATE_MAGALU_TEMPLATE),
+    amazon:Boolean(process.env.AFFILIATE_AMAZON_TEMPLATE)
+  },
   time:new Date().toISOString()
 }));
 
