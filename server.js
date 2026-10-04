@@ -138,32 +138,31 @@ async function webSearchFallback(query,limit=12){
   const html=await fetchText(url);
   const results=[];
   const seen=new Set();
-  const re=/<a[^>]+href="(\\/url\\?q=|)(https?:\\/\\/[^"]*mercadolivre[^"]*)"[^>]*>([\\s\\S]*?)<\\/a>/gi;
-  let m;
-  while((m=re.exec(html))&&results.length<limit){
-    const link=m[2].replace(/&amp;/g,"&");
-    if(seen.has(link)||/google\\./i.test(link))continue;
-    const title=stripHtml(m[3]);
-    if(title.length<8)continue;
-    const priceMatch=html.slice(m.index,m.index+1800).match(/R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2})/);
+  let pos=0;
+  while(results.length<limit){
+    const anchor=html.indexOf("<a ",pos);
+    if(anchor<0)break;
+    const hrefStart=html.indexOf('href="',anchor);
+    if(hrefStart<0)break;
+    const valueStart=hrefStart+6;
+    const valueEnd=html.indexOf('"',valueStart);
+    if(valueEnd<0)break;
+    const link=html.slice(valueStart,valueEnd).replace(/&amp;/g,"&");
+    const close=html.indexOf("</a>",valueEnd);
+    if(close<0)break;
+    const title=stripHtml(html.slice(valueEnd+1,close));
+    pos=close+4;
+    if(!/mercadolivre/i.test(link)||seen.has(link)||title.length<8)continue;
+    const area=html.slice(anchor,Math.min(html.length,close+2200));
+    const priceMatch=area.match(/R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2})/);
     const price=priceMatch?Number(priceMatch[1].replace(/\\./g,"").replace(",",".")):null;
     seen.add(link);
-    results.push({
-      id:"web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,24),
-      title,
-      price,
-      oldPrice:null,
-      thumbnail:null,
-      permalink:link,
-      condition:"new",
-      shipping:false,
-      seller:"",
-      source:"Web",
-      analysis:scoreProduct({price,oldPrice:null,condition:"new",shipping:false}),
-      outboundUrl:affiliateUrl({permalink:link})
-    });
+    if(price&&price>0){
+      const p={id:"web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,24),title,price,oldPrice:null,thumbnail:null,permalink:link,condition:"new",shipping:false,seller:"",source:"Web",};
+      results.push({...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)});
+    }
   }
-  return results.filter(x=>x.price&&x.price>0);
+  return results;
 }
 
 async function mlSearch(query,limit=12){
