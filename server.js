@@ -81,22 +81,55 @@ function scoreProduct(p){
   };
 }
 
+async function fetchJson(url,headers={}){
+  const response=await fetch(url,{
+    method:"GET",
+    headers:{
+      "Accept":"application/json,text/plain,*/*",
+      "User-Agent":"Mozilla/5.0 (compatible; OfertaRadar/1.0; +https://ofertaradar.onrender.com)",
+      ...headers
+    },
+    redirect:"follow"
+  });
+  const text=await response.text();
+  if(!response.ok)throw new Error("HTTP "+response.status+(text?": "+text.slice(0,180):""));
+  try{return JSON.parse(text)}catch{throw new Error("Resposta não-JSON do provedor")}
+}
+
 async function mlSearch(query,limit=12){
   const key=query.toLowerCase().trim();
   const cached=CACHE.get(key);
   if(cached&&Date.now()-cached.time<CACHE_MS)return cached.data;
-  const url="https://api.mercadolibre.com/sites/MLB/search?q="+encodeURIComponent(key)+"&limit="+Math.min(Number(limit)||12,20);
-  const response=await fetch(url,{headers:{"User-Agent":"OfertaRadar/1.1"}});
-  if(!response.ok)throw new Error("Mercado Livre respondeu "+response.status);
-  const data=await response.json();
+
+  const safeLimit=Math.min(Number(limit)||12,20);
+  const direct="https://api.mercadolibre.com/sites/MLB/search?q="+encodeURIComponent(key)+"&limit="+safeLimit;
+  let data=null;
+  let provider="Mercado Livre";
+
+  try{
+    data=await fetchJson(direct);
+  }catch(error){
+    console.warn("Mercado Livre direto indisponível:",error.message);
+    const proxy="https://r.jina.ai/"+direct;
+    try{
+      data=await fetchJson(proxy,{"X-Return-Format":"json"});
+      provider="Mercado Livre via fallback";
+      console.log("Mercado Livre: fallback ativo");
+    }catch(proxyError){
+      console.error("Mercado Livre direto e fallback falharam:",proxyError.message);
+      throw new Error("Fonte de ofertas indisponível no momento");
+    }
+  }
+
   const products=(data.results||[]).map(item=>{
     const p={
-      id:item.id,title:item.title,price:item.price,oldPrice:item.original_price||null,
+      id:item.id,title:item.title,price:Number(item.price),oldPrice:item.original_price?Number(item.original_price):null,
       thumbnail:item.thumbnail,permalink:item.permalink,condition:item.condition,
-      shipping:item.shipping?.free_shipping===true,seller:item.seller?.nickname||"",source:"Mercado Livre"
+      shipping:item.shipping?.free_shipping===true,seller:item.seller?.nickname||"",source:provider
     };
     return{...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)};
-  });
+  }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.permalink);
+
   CACHE.set(key,{time:Date.now(),data:products});
   return products;
 }
@@ -114,6 +147,7 @@ app.get("/api/search",async(req,res)=>{
     await saveHistory(products);
     res.json({query:q,products,updatedAt:new Date().toISOString()});
   }catch(error){
+    console.error("Busca /api/search:",error.message);
     res.status(502).json({error:"Não foi possível consultar as ofertas agora.",detail:error.message});
   }
 });
@@ -143,7 +177,7 @@ app.get("/api/radar",async(_req,res)=>{
       bestScore:best?best.analysis.score:0,bestTitle:best?best.title:"",
       bestPrice:best?best.price:null,bestUrl:best?best.outboundUrl:null
     });
-  }catch{}
+  }catch(error){console.warn("Radar falhou para",term,error.message)}
   results.sort((a,b)=>b.bestScore-a.bestScore||b.discountedCount-a.discountedCount);
   res.json({
     results,updatedAt:new Date().toISOString(),
@@ -211,7 +245,7 @@ app.get("/ofertas",async(_req,res)=>{
 app.get("/api/test",(_req,res)=>res.json({ok:true,service:"ofertaradar",time:new Date().toISOString()}));
 
 app.get("/health",(_req,res)=>res.json({
-  ok:true,service:"ofertaradar",version:"1.6",
+  ok:true,service:"ofertaradar",version:"1.7",
   affiliateReady:Boolean(process.env.AFFILIATE_REDIRECT_TEMPLATE),
   time:new Date().toISOString()
 }));
