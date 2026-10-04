@@ -3,7 +3,8 @@ const path=require("path");
 const app=express();
 const PORT=process.env.PORT||3000;
 const PUBLIC=path.join(__dirname,"ofertaradar","public");
-app.use(express.json());\napp.use((req,_res,next)=>{if(req.path.startsWith("/api/"))console.log("API",req.method,req.originalUrl);next();});
+app.use(express.json());
+app.use((req,_res,next)=>{if(req.path.startsWith("/api/"))console.log("API",req.method,req.originalUrl);next();});
 app.use(express.static(PUBLIC));
 
 const CACHE=new Map(),CACHE_MS=5*60*1000;
@@ -207,7 +208,9 @@ app.get("/ofertas",async(_req,res)=>{
   }catch{res.status(503).send("Ofertas temporariamente indisponíveis.");}
 });
 
-app.get("/api/test",(_req,res)=>res.json({ok:true,service:"ofertaradar",time:new Date().toISOString()}));\n\napp.get("/health",(_req,res)=>res.json({
+app.get("/api/test",(_req,res)=>res.json({ok:true,service:"ofertaradar",time:new Date().toISOString()}));
+
+app.get("/health",(_req,res)=>res.json({
   ok:true,service:"ofertaradar",version:"1.6",
   affiliateReady:Boolean(process.env.AFFILIATE_REDIRECT_TEMPLATE),
   time:new Date().toISOString()
