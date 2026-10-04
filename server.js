@@ -82,15 +82,20 @@ function scoreProduct(p){
 }
 
 async function fetchJson(url,headers={}){
-  const response=await fetch(url,{
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),12000);
+  let response;
+  try{
+    response=await fetch(url,{
     method:"GET",
     headers:{
       "Accept":"application/json,text/plain,*/*",
       "User-Agent":"Mozilla/5.0 (compatible; OfertaRadar/1.0; +https://ofertaradar.onrender.com)",
       ...headers
     },
-    redirect:"follow"
+    redirect:"follow",signal:controller.signal
   });
+  }finally{clearTimeout(timer)}
   const text=await response.text();
   if(!response.ok)throw new Error("HTTP "+response.status+(text?": "+text.slice(0,180):""));
   try{return JSON.parse(text)}catch{throw new Error("Resposta não-JSON do provedor")}
@@ -110,14 +115,22 @@ async function mlSearch(query,limit=12){
     data=await fetchJson(direct);
   }catch(error){
     console.warn("Mercado Livre direto indisponível:",error.message);
-    const proxy="https://r.jina.ai/"+direct;
+    const proxy="https://proxy.cors.dev/"+direct;
     try{
-      data=await fetchJson(proxy,{"X-Return-Format":"json"});
-      provider="Mercado Livre via fallback";
-      console.log("Mercado Livre: fallback ativo");
+      data=await fetchJson(proxy);
+      provider="Mercado Livre via proxy";
+      console.log("Mercado Livre: proxy de contingência ativo");
     }catch(proxyError){
-      console.error("Mercado Livre direto e fallback falharam:",proxyError.message);
-      throw new Error("Fonte de ofertas indisponível no momento");
+      console.warn("Proxy principal indisponível:",proxyError.message);
+      const fallback="https://r.jina.ai/"+direct;
+      try{
+        data=await fetchJson(fallback,{"X-Return-Format":"json"});
+        provider="Mercado Livre via fallback";
+        console.log("Mercado Livre: fallback Jina ativo");
+      }catch(jinaError){
+        console.error("Mercado Livre direto, proxy e fallback falharam:",jinaError.message);
+        throw new Error("Fonte de ofertas indisponível no momento");
+      }
     }
   }
 
