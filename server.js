@@ -72,7 +72,7 @@ function affiliateUrl(p){
     "amazon":process.env.AFFILIATE_AMAZON_TEMPLATE
   };
   const tpl=templates[source];
-  if(!tpl)return p.permalink;
+  if(!tpl)return null;
   return tpl.replaceAll("{url}",encodeURIComponent(p.permalink)).replaceAll("{id}",encodeURIComponent(p.id));
 }
 
@@ -208,7 +208,7 @@ async function mlSearch(query,limit=12){
       affiliateUrl:item.url
     };
     return{...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)};
-  }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink);
+  }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink&&p.outboundUrl);
 
   if(!products.length)throw new Error("Nenhuma oferta encontrada para esta busca");
   CACHE.set(key,{time:Date.now(),data:products});
@@ -329,6 +329,7 @@ app.get("/health",(_req,res)=>res.json({
     magazineLuiza:Boolean(process.env.AFFILIATE_MAGALU_TEMPLATE),
     amazon:Boolean(process.env.AFFILIATE_AMAZON_TEMPLATE)
   },
+  policy:"Somente links de afiliado configurados; sem fallback para URLs comuns.",
   time:new Date().toISOString()
 }));
 
