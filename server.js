@@ -101,6 +101,64 @@ async function fetchJson(url,headers={}){
   try{return JSON.parse(text)}catch{throw new Error("Resposta não-JSON do provedor")}
 }
 
+async function fetchText(url,headers={}){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),12000);
+  try{
+    const response=await fetch(url,{
+      method:"GET",
+      headers:{
+        "Accept":"text/html,application/xhtml+xml",
+        "User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36",
+        ...headers
+      },
+      redirect:"follow",
+      signal:controller.signal
+    });
+    const text=await response.text();
+    if(!response.ok)throw new Error("HTTP "+response.status);
+    return text;
+  }finally{clearTimeout(timer)}
+}
+
+function stripHtml(value){
+  return String(value||"").replace(/<script[\\s\\S]*?<\\/script>/gi," ").replace(/<style[\\s\\S]*?<\\/style>/gi," ").replace(/<[^>]+>/g," ").replace(/&nbsp;/g," ").replace(/&amp;/g,"&").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/\\s+/g," ").trim();
+}
+
+async function webSearchFallback(query,limit=12){
+  const q=String(query||"").trim();
+  const url="https://www.google.com/search?num="+Math.min(limit,10)+"&q="+encodeURIComponent("site:mercadolivre.com.br "+q+" R$");
+  const html=await fetchText(url);
+  const results=[];
+  const seen=new Set();
+  const re=/<a[^>]+href="(\\/url\\?q=|)(https?:\\/\\/[^"]*mercadolivre[^"]*)"[^>]*>([\\s\\S]*?)<\\/a>/gi;
+  let m;
+  while((m=re.exec(html))&&results.length<limit){
+    const link=m[2].replace(/&amp;/g,"&");
+    if(seen.has(link)||/google\\./i.test(link))continue;
+    const title=stripHtml(m[3]);
+    if(title.length<8)continue;
+    const priceMatch=html.slice(m.index,m.index+1800).match(/R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2})/);
+    const price=priceMatch?Number(priceMatch[1].replace(/\\./g,"").replace(",",".")):null;
+    seen.add(link);
+    results.push({
+      id:"web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,24),
+      title,
+      price,
+      oldPrice:null,
+      thumbnail:null,
+      permalink:link,
+      condition:"new",
+      shipping:false,
+      seller:"",
+      source:"Web",
+      analysis:scoreProduct({price,oldPrice:null,condition:"new",shipping:false}),
+      outboundUrl:affiliateUrl({permalink:link})
+    });
+  }
+  return results.filter(x=>x.price&&x.price>0);
+}
+
 async function mlSearch(query,limit=12){
   const key=query.toLowerCase().trim();
   const cached=CACHE.get(key);
@@ -115,23 +173,17 @@ async function mlSearch(query,limit=12){
     data=await fetchJson(direct);
   }catch(error){
     console.warn("Mercado Livre direto indisponível:",error.message);
-    const proxy="https://proxy.cors.dev/"+direct;
     try{
-      data=await fetchJson(proxy);
-      provider="Mercado Livre via proxy";
-      console.log("Mercado Livre: proxy de contingência ativo");
-    }catch(proxyError){
-      console.warn("Proxy principal indisponível:",proxyError.message);
-      const fallback="https://r.jina.ai/"+direct;
-      try{
-        data=await fetchJson(fallback,{"X-Return-Format":"json"});
-        provider="Mercado Livre via fallback";
-        console.log("Mercado Livre: fallback Jina ativo");
-      }catch(jinaError){
-        console.error("Mercado Livre direto, proxy e fallback falharam:",jinaError.message);
-        throw new Error("Fonte de ofertas indisponível no momento");
+      const webProducts=await webSearchFallback(key,safeLimit);
+      if(webProducts.length){
+        console.log("Busca web de contingência ativa:",webProducts.length,"resultados");
+        CACHE.set(key,{time:Date.now(),data:webProducts});
+        return webProducts;
       }
+    }catch(webError){
+      console.error("Busca web de contingência falhou:",webError.message);
     }
+    throw new Error("Fonte de ofertas indisponível no momento");
   }
 
   const products=(data.results||[]).map(item=>{
