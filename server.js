@@ -288,7 +288,23 @@ app.get("/api/radar",async(_req,res)=>{
         }
       }
     }else sendResult=await sendOffers(unique);
-    res.json({ok:true,results,updatedAt:new Date().toISOString(),sent:sendResult,note:"Radar protegido contra execuções simultâneas. Ofertas enviadas ficam bloqueadas por 24 horas quando PostgreSQL está disponível."});
+    const compactResults = results.map(r => ({
+      term: r.term,
+      productCount: r.productCount,
+      bestScore: r.bestScore,
+      discountedCount: r.discountedCount
+    }));
+
+    res.json({
+      ok: true,
+      termsProcessed: results.length,
+      results: compactResults,
+      sent: {
+        telegram: sendResult.telegram?.sent || 0,
+        whatsapp: sendResult.whatsapp?.sent || 0
+      },
+      updatedAt: new Date().toISOString()
+    });
   }catch(error){
     console.error("[Radar Erro]: falha no processamento do ciclo:",error.message);
     res.status(500).json({ok:false,error:error.message});
