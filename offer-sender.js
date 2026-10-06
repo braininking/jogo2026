@@ -74,14 +74,15 @@ function buildOfferMessage(offers) {
 
 async function sendTelegram(offers) {
   const token=process.env.TELEGRAM_BOT_TOKEN;
-  const chatIds=String(process.env.TELEGRAM_CHAT_IDS||"").split(",").map(x=>x.trim()).filter(Boolean);
+  const configuredChatIds=String(process.env.TELEGRAM_CHAT_IDS||"").split(",").map(x=>x.trim()).filter(Boolean);
+  const chatIds=configuredChatIds.length?configuredChatIds:["-1004449624928"];
   if(!token||!chatIds.length)return {configured:false,sent:0};
   let sent=0;
   const errors=[];
   for(const chat_id of chatIds){
     for(const p of offers){
       const caption=buildOfferCaption(p);
-      const imageUrl=normalizeImageUrl(p.thumbnail||p.imageUrl||p.image_url);
+      const imageUrl=normalizeImageUrl(p.thumbnail||p.imageUrl||p.image_url||p.imagemUrl);
       try{
         if(imageUrl){
           try{
