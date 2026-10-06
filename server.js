@@ -12,6 +12,7 @@ const HISTORY=[];
 let db=null;
 
 async function initHistoryDb(){
+
   if(!process.env.DATABASE_URL)return;
   try{
     const {Pool}=require("pg");
@@ -242,8 +243,10 @@ app.get("/api/category/:slug",async(req,res)=>{
 });
 
 app.get("/api/radar",async(_req,res)=>{
+  const {sendOffers}=require("./offer-sender");
   const terms=["celular","ssd 1tb","notebook","smart tv","air fryer","fone bluetooth","placa de video","monitor gamer"];
   const results=[];
+  const candidates=[];
   for(const term of terms)try{
     const products=await mlSearch(term,12);
     await saveHistory(products);
@@ -254,11 +257,37 @@ app.get("/api/radar",async(_req,res)=>{
       bestScore:best?best.analysis.score:0,bestTitle:best?best.title:"",
       bestPrice:best?best.price:null,bestUrl:best?best.outboundUrl:null
     });
+    if(best&&best.analysis.score>=65)candidates.push({...best,radarTerm:term});
   }catch(error){console.warn("Radar falhou para",term,error.message)}
   results.sort((a,b)=>b.bestScore-a.bestScore||b.discountedCount-a.discountedCount);
+
+  const unique=[...new Map(candidates.map(p=>[p.id,p])).values()].slice(0,8);
+  let sendResult={telegram:{configured:false,sent:0},whatsapp:{configured:false,sent:0}};
+  try{
+    if(db){
+      await db.query("CREATE TABLE IF NOT EXISTS sent_offers (id TEXT PRIMARY KEY, sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+      const fresh=[];
+      for(const p of unique){
+        const r=await db.query("SELECT 1 FROM sent_offers WHERE id=$1 AND sent_at>NOW()-INTERVAL '24 hours' LIMIT 1",[p.id]);
+        if(!r.rowCount)fresh.push(p);
+      }
+      if(fresh.length){
+        sendResult=await sendOffers(fresh);
+        if(sendResult.telegram.sent||sendResult.whatsapp.sent){
+          for(const p of fresh)await db.query("INSERT INTO sent_offers(id) VALUES($1) ON CONFLICT(id) DO UPDATE SET sent_at=NOW()",[p.id]);
+        }
+      }
+    }else{
+      sendResult=await sendOffers(unique);
+    }
+  }catch(error){
+    console.error("Envio automático falhou:",error.message);
+  }
+
   res.json({
     results,updatedAt:new Date().toISOString(),
-    note:"Radar de oportunidade baseado em preço, desconto informado e disponibilidade dos resultados atuais. Não representa volume real de vendas."
+    sent:sendResult,
+    note:"Radar automático: executa a pesquisa e envia as melhores ofertas configuradas. A mesma oferta não é reenviada por 24 horas quando PostgreSQL está disponível."
   });
 });
 
