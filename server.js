@@ -10,6 +10,7 @@ app.use(express.static(PUBLIC));
 const CACHE=new Map(),CACHE_MS=5*60*1000;
 const HISTORY=[];
 let db=null;
+let isRadarRunning=false;
 
 async function initHistoryDb(){
 
@@ -162,7 +163,9 @@ async function webSearchFallback(query,limit=12){
     const shipping=/Frete grátis|frete grátis/i.test(area);
     const p={id:"ml-web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,32),title,price,oldPrice,thumbnail:"",permalink:link,condition:"new",shipping,seller:"",source:"Mercado Livre"};
     seen.add(link);
-    results.push({...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)||link});
+    const outboundUrl=affiliateUrl(p);
+    if(!outboundUrl)continue;
+    results.push({...p,analysis:scoreProduct(p),outboundUrl});
   }
   if(!results.length)throw new Error("Nenhuma oferta encontrada na busca web");
   console.log("Fallback Mercado Livre:",q,"-",results.length,"ofertas");
@@ -203,8 +206,9 @@ async function mlSearch(query,limit=12){
       dataAsOf:item.dataAsOf||data.data_as_of||null,
       affiliateUrl:item.url
     };
-    return{...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)};
-  }).map(p=>({...p,outboundUrl:p.outboundUrl||p.permalink})).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink);
+    const outboundUrl=affiliateUrl(p);
+    return{...p,analysis:scoreProduct(p),outboundUrl};
+  }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink&&p.outboundUrl);
 
   if(products.length){
     CACHE.set(key,{time:Date.now(),data:products});
@@ -247,27 +251,29 @@ app.get("/api/category/:slug",async(req,res)=>{
 });
 
 app.get("/api/radar",async(_req,res)=>{
-  const {sendOffers}=require("./offer-sender");
-  const terms=["celular","ssd 1tb","notebook","smart tv","air fryer","fone bluetooth","placa de video","monitor gamer"];
-  const results=[];
-  const candidates=[];
-  for(const term of terms)try{
-    const products=await mlSearch(term,12);
-    await saveHistory(products);
-    const discounted=products.filter(p=>p.oldPrice&&p.oldPrice>p.price);
-    const best=products.slice().sort((a,b)=>b.analysis.score-a.analysis.score)[0];
-    results.push({
-      term,productCount:products.length,discountedCount:discounted.length,
-      bestScore:best?best.analysis.score:0,bestTitle:best?best.title:"",
-      bestPrice:best?best.price:null,bestUrl:best?best.outboundUrl:null
-    });
-    if(best&&best.analysis.score>=55)candidates.push({...best,radarTerm:term});
-  }catch(error){console.warn("Radar falhou para",term,error.message)}
-  results.sort((a,b)=>b.bestScore-a.bestScore||b.discountedCount-a.discountedCount);
-
-  const unique=[...new Map(candidates.map(p=>[p.id,p])).values()].slice(0,8);
-  let sendResult={telegram:{configured:false,sent:0},whatsapp:{configured:false,sent:0}};
+  if(isRadarRunning){
+    console.log("[Radar] Bloqueado: já existe uma execução em andamento.");
+    return res.status(429).json({ok:false,error:"O radar já está processando ofertas neste momento."});
+  }
+  isRadarRunning=true;
+  let dbLock=false;
+  console.log("[Radar] Iniciando ciclo de busca e envio...");
   try{
+    if(db){await db.query("SELECT pg_advisory_lock($1)",[82736421]);dbLock=true;}
+    const {sendOffers}=require("./offer-sender");
+    const terms=["celular","ssd 1tb","notebook","smart tv","air fryer","fone bluetooth","placa de video","monitor gamer"];
+    const results=[],candidates=[];
+    for(const term of terms)try{
+      const products=await mlSearch(term,12);
+      await saveHistory(products);
+      const discounted=products.filter(p=>p.oldPrice&&p.oldPrice>p.price);
+      const best=products.slice().sort((a,b)=>b.analysis.score-a.analysis.score)[0];
+      results.push({term,productCount:products.length,discountedCount:discounted.length,bestScore:best?best.analysis.score:0,bestTitle:best?best.title:"",bestPrice:best?best.price:null,bestUrl:best?best.outboundUrl:null});
+      if(best&&best.analysis.score>=55&&best.outboundUrl)candidates.push({...best,radarTerm:term});
+    }catch(error){console.warn("Radar falhou para",term,error.message)}
+    results.sort((a,b)=>b.bestScore-a.bestScore||b.discountedCount-a.discountedCount);
+    const unique=[...new Map(candidates.map(p=>[p.id,p])).values()].slice(0,8);
+    let sendResult={telegram:{configured:false,sent:0},whatsapp:{configured:false,sent:0}};
     if(db){
       await db.query("CREATE TABLE IF NOT EXISTS sent_offers (id TEXT PRIMARY KEY, sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
       const fresh=[];
@@ -281,18 +287,16 @@ app.get("/api/radar",async(_req,res)=>{
           for(const p of fresh)await db.query("INSERT INTO sent_offers(id) VALUES($1) ON CONFLICT(id) DO UPDATE SET sent_at=NOW()",[p.id]);
         }
       }
-    }else{
-      sendResult=await sendOffers(unique);
-    }
+    }else sendResult=await sendOffers(unique);
+    res.json({ok:true,results,updatedAt:new Date().toISOString(),sent:sendResult,note:"Radar protegido contra execuções simultâneas. Ofertas enviadas ficam bloqueadas por 24 horas quando PostgreSQL está disponível."});
   }catch(error){
-    console.error("Envio automático falhou:",error.message);
+    console.error("[Radar Erro]: falha no processamento do ciclo:",error.message);
+    res.status(500).json({ok:false,error:error.message});
+  }finally{
+    if(db&&dbLock){try{await db.query("SELECT pg_advisory_unlock($1)",[82736421]);}catch{}}
+    isRadarRunning=false;
+    console.log("[Radar] Ciclo finalizado. Trava de segurança liberada.");
   }
-
-  res.json({
-    results,updatedAt:new Date().toISOString(),
-    sent:sendResult,
-    note:"Radar automático: executa a pesquisa e envia as melhores ofertas configuradas. A mesma oferta não é reenviada por 24 horas quando PostgreSQL está disponível."
-  });
 });
 
 const CATEGORY_NAMES={
@@ -351,6 +355,8 @@ app.get("/ofertas",async(_req,res)=>{
     res.send('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ofertas do Momento — OfertaRadar</title><meta name="description" content="Ofertas atuais encontradas pelo OfertaRadar, organizadas por preço, desconto informado e custo-benefício."><link rel="canonical" href="https://ofertaradar.onrender.com/ofertas"><link rel="stylesheet" href="/style.css"><script type="application/ld+json">'+JSON.stringify({"@context":"https://schema.org","@type":"WebPage","name":"Ofertas do Momento","url":"https://ofertaradar.onrender.com/ofertas"})+'</script></head><body><header class="top"><div class="wrap nav"><a class="brand" href="/">Oferta<span>Radar</span></a><nav><a href="/">Início</a><a href="/ofertas">Ofertas</a><a href="/#radar">Radar</a><a href="/#categorias">Categorias</a></nav></div></header><main><section class="hero"><div class="wrap"><div class="eyebrow">⚡ OFERTAS ATUAIS</div><h1>Ofertas do momento</h1><p>Produtos encontrados nas buscas atuais e ordenados pelo indicador de oportunidade do OfertaRadar.</p></div></section><section class="wrap section"><div class="sectionHead"><div><span class="eyebrow">RADAR DE PREÇOS</span><h2>Achados para conferir</h2><p class="muted">A seleção usa preço, desconto informado, frete e condição. Não representa volume real de vendas.</p></div><span class="status">'+unique.length+' ofertas analisadas</span></div><div class="grid">'+unique.map(seoCard).join('')+'</div></section></main><footer><div class="wrap">© 2026 OfertaRadar · Preços sujeitos a alteração</div></footer></body></html>');
   }catch{res.status(503).send("Ofertas temporariamente indisponíveis.");}
 });
+
+app.get("/api/radar-status",(_req,res)=>res.json({ok:true,running:isRadarRunning,updatedAt:new Date().toISOString(),message:isRadarRunning?"Radar processando ofertas...":"Radar pronto para a próxima execução automática."}));
 
 app.get("/api/teste-telegram",async(_req,res)=>{
   const token=String(process.env.TELEGRAM_BOT_TOKEN||"").trim();
