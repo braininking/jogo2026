@@ -209,7 +209,7 @@ async function mlSearch(query,limit=12){
       affiliateUrl:item.url
     };
     return{...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)};
-  }).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink&&p.outboundUrl);
+  }).map(p=>({...p,outboundUrl:p.outboundUrl||p.permalink})).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink);
 
   if(!products.length)throw new Error("Nenhuma oferta encontrada para esta busca");
   CACHE.set(key,{time:Date.now(),data:products});
