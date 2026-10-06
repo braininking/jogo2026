@@ -1,0 +1,20 @@
+name: OfertaRadar - Radar a cada 10 minutos
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executar radar
+        env:
+          RADAR_URL: https://ofertaradar.onrender.com/api/radar
+        run: |
+          set -e
+          echo "Executando OfertaRadar em $(date -u)"
+          curl --fail --show-error --silent --max-time 120 "$RADAR_URL" -o radar.json
+          echo "Radar executado com sucesso."
+          cat radar.json
