@@ -67,16 +67,24 @@ async function sendTelegram(text) {
   const chatIds = String(process.env.TELEGRAM_CHAT_IDS || "").split(",").map(x => x.trim()).filter(Boolean);
   if (!token || !chatIds.length) return { configured: false, sent: 0 };
   let sent = 0;
+  const errors = [];
   for (const chat_id of chatIds) {
-    await postJson("https://api.telegram.org/bot" + token + "/sendMessage", {
-      chat_id,
-      text,
-      parse_mode: "HTML",
-      disable_web_page_preview: false
-    });
-    sent++;
+    try {
+      await postJson("https://api.telegram.org/bot" + token + "/sendMessage", {
+        chat_id,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: false
+      });
+      sent++;
+      console.log("Telegram enviado:", chat_id);
+    } catch (error) {
+      const message = error.message || "erro desconhecido";
+      errors.push({chat_id, error: message});
+      console.error("Telegram falhou para", chat_id + ":", message);
+    }
   }
-  return { configured: true, sent };
+  return { configured: true, sent, errors };
 }
 
 async function sendWhatsApp(text) {
