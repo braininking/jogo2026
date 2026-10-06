@@ -352,28 +352,6 @@ app.get("/ofertas",async(_req,res)=>{
   }catch{res.status(503).send("Ofertas temporariamente indisponíveis.");}
 });
 
-let radarBusy=false;
-
-async function runAutomaticRadar(){
-  if(radarBusy){
-    console.log("Radar automático: execução anterior ainda está em andamento");
-    return;
-  }
-  radarBusy=true;
-  try{
-    const response=await fetch("http://127.0.0.1:"+PORT+"/api/radar",{signal:AbortSignal.timeout(180000)});
-    const body=await response.text();
-    console.log("Radar automático:",response.status,body.slice(0,1200));
-  }catch(error){
-    console.error("Radar automático falhou:",error.message);
-  }finally{
-    radarBusy=false;
-  }
-}
-
-setTimeout(runAutomaticRadar,15000);
-setInterval(runAutomaticRadar,10*60*1000);
-
 app.get("/api/test",(_req,res)=>res.json({ok:true,service:"ofertaradar",time:new Date().toISOString()}));
 
 app.get("/health",(_req,res)=>res.json({
