@@ -352,6 +352,27 @@ app.get("/ofertas",async(_req,res)=>{
   }catch{res.status(503).send("Ofertas temporariamente indisponíveis.");}
 });
 
+app.get("/api/teste-telegram",async(_req,res)=>{
+  const token=String(process.env.TELEGRAM_BOT_TOKEN||"").trim();
+  const chatId="-1004449624928";
+  if(!token)return res.status(500).json({ok:false,error:"TELEGRAM_BOT_TOKEN não configurado"});
+  try{
+    const url="https://api.telegram.org/bot"+token+"/sendMessage";
+    const response=await fetch(url,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({chat_id:chatId,text:"Olá! Teste de conexão do OfertaRadar."})
+    });
+    const data=await response.json().catch(()=>({ok:false,error:"Resposta inválida do Telegram"}));
+    console.log("Teste Telegram:",JSON.stringify(data));
+    if(!response.ok||!data.ok)return res.status(response.status||502).json({ok:false,chatId,error:data.description||"Telegram recusou o envio",telegram:data});
+    res.json({ok:true,chatId,telegram:data});
+  }catch(error){
+    console.error("Teste Telegram falhou:",error.message);
+    res.status(502).json({ok:false,chatId,error:error.message});
+  }
+});
+
 app.get("/api/test",(_req,res)=>res.json({ok:true,service:"ofertaradar",time:new Date().toISOString()}));
 
 app.get("/health",(_req,res)=>res.json({
