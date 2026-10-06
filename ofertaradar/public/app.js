@@ -48,10 +48,12 @@ $("#searchForm").addEventListener("submit",e=>{e.preventDefault();search($("#que
 document.querySelectorAll("[data-q]").forEach(b=>b.addEventListener("click",()=>{$("#query").value=b.dataset.q;search(b.dataset.q);$("#resultados").scrollIntoView({behavior:"smooth"})}));
 async function loadRadar(){
   try{
-    const d=await getJson("/api/radar?refresh="+Date.now());
-    $("#radarGrid").innerHTML=d.results.map(x=>`<div class="radarItem"><span class="eyebrow">ATENÇÃO</span><h3>${esc(x.term)}</h3><p>${x.productCount} resultados · ${x.discountedCount} com desconto informado</p><strong>${x.bestScore}/100</strong>${x.bestTitle?'<div class="muted">'+esc(x.bestTitle)+"</div>":""}${x.bestPrice?'<div class="price">'+money(x.bestPrice)+"</div>":""}<button data-q="${esc(x.term)}">Ver ofertas →</button>${x.bestUrl?'<a class="radarLink" href="'+esc(x.bestUrl)+'" target="_blank" rel="noopener sponsored">Abrir melhor achado ↗</a>':""}</div>`).join("");
-    $("#radarGrid").querySelectorAll("button[data-q]").forEach(b=>b.addEventListener("click",()=>{ $("#query").value=b.dataset.q;search(b.dataset.q);$("#resultados").scrollIntoView({behavior:"smooth"})}));
-  }catch(error){console.error("OfertaRadar radar:",error);$("#radarGrid").innerHTML='<div class="emptyBox">Radar temporariamente indisponível: '+esc(error.message||"")+"</div>"}
+    const d=await getJson("/api/radar-status?refresh="+Date.now());
+    $("#radarGrid").innerHTML='<div class="radarItem"><span class="eyebrow">RADAR AUTOMÁTICO</span><h3>'+esc(d.running?"Processando ofertas...":"Online e protegido")+'</h3><p>'+esc(d.running?"O servidor está pesquisando e preparando as próximas ofertas.":"A próxima execução é feita automaticamente pelo servidor.")+'</p><strong>'+esc(d.running?"EM EXECUÇÃO":"PRONTO")+'</strong><div class="muted">Última verificação: '+new Date(d.updatedAt).toLocaleString("pt-BR")+'</div></div>';
+  }catch(error){
+    console.error("OfertaRadar radar:",error);
+    $("#radarGrid").innerHTML='<div class="emptyBox">Status do radar temporariamente indisponível.</div>';
+  }
 }
-loadRadar();setInterval(loadRadar,10*60*1000);
+loadRadar();setInterval(loadRadar,60*1000);
 document.querySelectorAll("[data-nav]").forEach(link=>{link.addEventListener("click",e=>{e.preventDefault();const target=document.getElementById(link.dataset.nav);if(target)target.scrollIntoView({behavior:"smooth",block:"start"});history.replaceState(null,"","#"+link.dataset.nav)})});
