@@ -1,0 +1,18 @@
+services:
+  openwa:
+    image: openwa/wa-automate:latest
+    container_name: ofertaradar-openwa
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./sessions:/sessions
+    environment:
+      WA_PORT: "8080"
+      WA_HOST: "0.0.0.0"
+      WA_SESSION_ID: ofertaradar
+      WA_USER_DATA_DIR: /sessions/ofertaradar
+      WA_API_KEY: ${WA_API_KEY}
+      W_A_V: "5.1.0"
+    command: ["--session-id","ofertaradar","--host","0.0.0.0","--port","8080"]
