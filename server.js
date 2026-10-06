@@ -142,34 +142,30 @@ function stripHtml(value){
 
 async function webSearchFallback(query,limit=12){
   const q=String(query||"").trim();
-  const url="https://www.google.com/search?num="+Math.min(limit,10)+"&q="+encodeURIComponent("site:mercadolivre.com.br "+q+" R$");
+  const slug=encodeURIComponent(q).replace(/%20/g,"-");
+  const url="https://lista.mercadolivre.com.br/"+slug;
   const html=await fetchText(url);
   const results=[];
   const seen=new Set();
-  let pos=0;
-  while(results.length<limit){
-    const anchor=html.indexOf("<a ",pos);
-    if(anchor<0)break;
-    const hrefStart=html.indexOf('href="',anchor);
-    if(hrefStart<0)break;
-    const valueStart=hrefStart+6;
-    const valueEnd=html.indexOf('"',valueStart);
-    if(valueEnd<0)break;
-    const link=html.slice(valueStart,valueEnd).replace(/&amp;/g,"&");
-    const close=html.indexOf("</a>",valueEnd);
-    if(close<0)break;
-    const title=stripHtml(html.slice(valueEnd+1,close));
-    pos=close+4;
-    if(!/mercadolivre/i.test(link)||seen.has(link)||title.length<8)continue;
-    const area=html.slice(anchor,Math.min(html.length,close+2200));
-    const priceMatch=area.match(/R\\$\\s*([0-9]{1,3}(?:\\.[0-9]{3})*,[0-9]{2})/);
-    const price=priceMatch?Number(priceMatch[1].replace(/\\./g,"").replace(",",".")):null;
+  const cardRe=/<a[^>]+href="([^"]+)"[^>]*>[\s\S]{0,5000}?<span[^>]*class="[^"]*poly-component__title[^"]*"[^>]*>([\s\S]*?)<\/span>[\s\S]{0,5000}?<span[^>]*class="[^"]*andes-money-amount__fraction[^"]*"[^>]*>([0-9.]+)<\/span>/g;
+  for(const m of html.matchAll(cardRe)){
+    if(results.length>=limit)break;
+    let link=String(m[1]||"").replace(/&amp;/g,"&");
+    if(link.startsWith("/"))link="https://www.mercadolivre.com.br"+link;
+    if(!/^https?:\/\/(www\.)?mercadolivre\.com\.br/i.test(link)||seen.has(link))continue;
+    const title=stripHtml(m[2]);
+    const price=Number(String(m[3]).replace(/\./g,""));
+    if(!title||!Number.isFinite(price)||price<=0)continue;
+    const area=html.slice(Math.max(0,m.index-2500),Math.min(html.length,m.index+7000));
+    const oldMatches=[...area.matchAll(/andes-money-amount__fraction[^>]*>([0-9.]+)</g)].map(x=>Number(String(x[1]).replace(/\./g,""))).filter(Number.isFinite);
+    const oldPrice=oldMatches.find(v=>v>price)||null;
+    const shipping=/Frete grátis|frete grátis/i.test(area);
+    const p={id:"ml-web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,32),title,price,oldPrice,thumbnail:"",permalink:link,condition:"new",shipping,seller:"",source:"Mercado Livre"};
     seen.add(link);
-    if(price&&price>0){
-      const p={id:"web-"+Buffer.from(link).toString("base64").replace(/[^a-zA-Z0-9]/g,"").slice(0,24),title,price,oldPrice:null,thumbnail:null,permalink:link,condition:"new",shipping:false,seller:"",source:"Web",};
-      results.push({...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)});
-    }
+    results.push({...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)||link});
   }
+  if(!results.length)throw new Error("Nenhuma oferta encontrada na busca web");
+  console.log("Fallback Mercado Livre:",q,"-",results.length,"ofertas");
   return results;
 }
 
@@ -180,12 +176,11 @@ async function mlSearch(query,limit=12){
 
   const safeLimit=Math.min(Number(limit)||12,20);
   const apiUrl="https://brmarket.thomenz.me/v1/search?q="+encodeURIComponent(key)+"&limit="+safeLimit;
-  let data;
+  let data=null;
   try{
     data=await fetchJson(apiUrl);
   }catch(error){
-    console.error("BR Market indisponível:",error.message);
-    throw new Error("Fonte de ofertas indisponível no momento");
+    console.warn("BR Market indisponível:",error.message);
   }
 
   const marketplaceNames={mercadolivre:"Mercado Livre",shopee:"Shopee",aliexpress:"AliExpress"};
@@ -211,10 +206,19 @@ async function mlSearch(query,limit=12){
     return{...p,analysis:scoreProduct(p),outboundUrl:affiliateUrl(p)};
   }).map(p=>({...p,outboundUrl:p.outboundUrl||p.permalink})).filter(p=>p.id&&p.title&&Number.isFinite(p.price)&&p.price>0&&p.permalink);
 
-  if(!products.length)throw new Error("Nenhuma oferta encontrada para esta busca");
-  CACHE.set(key,{time:Date.now(),data:products});
-  console.log("Busca agregada:",key,"-",products.length,"ofertas");
-  return products;
+  if(products.length){
+    CACHE.set(key,{time:Date.now(),data:products});
+    console.log("Busca agregada:",key,"-",products.length,"ofertas");
+    return products;
+  }
+  try{
+    const fallback=await webSearchFallback(key,safeLimit);
+    CACHE.set(key,{time:Date.now(),data:fallback});
+    return fallback;
+  }catch(error){
+    console.error("Fallback de ofertas falhou:",error.message);
+    throw new Error("Nenhuma oferta encontrada para esta busca");
+  }
 }
 
 app.get("/api/search",async(req,res)=>{
@@ -257,7 +261,7 @@ app.get("/api/radar",async(_req,res)=>{
       bestScore:best?best.analysis.score:0,bestTitle:best?best.title:"",
       bestPrice:best?best.price:null,bestUrl:best?best.outboundUrl:null
     });
-    if(best&&best.analysis.score>=65)candidates.push({...best,radarTerm:term});
+    if(best&&best.analysis.score>=55)candidates.push({...best,radarTerm:term});
   }catch(error){console.warn("Radar falhou para",term,error.message)}
   results.sort((a,b)=>b.bestScore-a.bestScore||b.discountedCount-a.discountedCount);
 
@@ -347,6 +351,28 @@ app.get("/ofertas",async(_req,res)=>{
     res.send('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Ofertas do Momento — OfertaRadar</title><meta name="description" content="Ofertas atuais encontradas pelo OfertaRadar, organizadas por preço, desconto informado e custo-benefício."><link rel="canonical" href="https://ofertaradar.onrender.com/ofertas"><link rel="stylesheet" href="/style.css"><script type="application/ld+json">'+JSON.stringify({"@context":"https://schema.org","@type":"WebPage","name":"Ofertas do Momento","url":"https://ofertaradar.onrender.com/ofertas"})+'</script></head><body><header class="top"><div class="wrap nav"><a class="brand" href="/">Oferta<span>Radar</span></a><nav><a href="/">Início</a><a href="/ofertas">Ofertas</a><a href="/#radar">Radar</a><a href="/#categorias">Categorias</a></nav></div></header><main><section class="hero"><div class="wrap"><div class="eyebrow">⚡ OFERTAS ATUAIS</div><h1>Ofertas do momento</h1><p>Produtos encontrados nas buscas atuais e ordenados pelo indicador de oportunidade do OfertaRadar.</p></div></section><section class="wrap section"><div class="sectionHead"><div><span class="eyebrow">RADAR DE PREÇOS</span><h2>Achados para conferir</h2><p class="muted">A seleção usa preço, desconto informado, frete e condição. Não representa volume real de vendas.</p></div><span class="status">'+unique.length+' ofertas analisadas</span></div><div class="grid">'+unique.map(seoCard).join('')+'</div></section></main><footer><div class="wrap">© 2026 OfertaRadar · Preços sujeitos a alteração</div></footer></body></html>');
   }catch{res.status(503).send("Ofertas temporariamente indisponíveis.");}
 });
+
+let radarBusy=false;
+
+async function runAutomaticRadar(){
+  if(radarBusy){
+    console.log("Radar automático: execução anterior ainda está em andamento");
+    return;
+  }
+  radarBusy=true;
+  try{
+    const response=await fetch("http://127.0.0.1:"+PORT+"/api/radar",{signal:AbortSignal.timeout(180000)});
+    const body=await response.text();
+    console.log("Radar automático:",response.status,body.slice(0,1200));
+  }catch(error){
+    console.error("Radar automático falhou:",error.message);
+  }finally{
+    radarBusy=false;
+  }
+}
+
+setTimeout(runAutomaticRadar,15000);
+setInterval(runAutomaticRadar,10*60*1000);
 
 app.get("/api/test",(_req,res)=>res.json({ok:true,service:"ofertaradar",time:new Date().toISOString()}));
 
